@@ -4,6 +4,11 @@
 # 사용법
 #   ./release.sh 1.0.0          정식 배포 (Developer ID 인증서 + 공증 자격 증명 필요)
 #   ./release.sh 1.0.0 --dev    파이프라인 시험용: Apple Development 인증서로 서명, 공증 생략
+#   ./release.sh 1.0.0 --publish         빌드 후 GitHub Releases에 v1.0.0으로 업로드
+#   ./release.sh 1.0.0 --dev --publish   시험 빌드를 '초안 + 사전 릴리스'로 업로드 (공개되지 않음)
+#
+# --publish 조건: gh 로그인, 커밋 안 된 변경 없음, 현재 커밋이 원격에 push됨, 같은 버전 태그 없음
+#   (공증처럼 오래 걸리는 단계 전에 미리 확인한다)
 #
 # 처음 한 번 필요한 준비 (정식 배포)
 #   1. Apple Developer Program 가입 후 Xcode › Settings › Accounts › Manage Certificates 에서
@@ -23,14 +28,21 @@ cd "$(dirname "$0")"
 
 APP_NAME="TouchBridge"
 VERSION="${1:-}"
-MODE="${2:-release}"
 NOTARY_PROFILE="${NOTARY_PROFILE:-TouchBridgeNotary}"
 
 if [[ -z "$VERSION" || ! "$VERSION" =~ '^[0-9]+\.[0-9]+(\.[0-9]+)?$' ]]; then
-    echo "사용법: ./release.sh <버전> [--dev]   예) ./release.sh 1.0.0"; exit 1
+    echo "사용법: ./release.sh <버전> [--dev] [--publish]   예) ./release.sh 1.0.0 --publish"; exit 1
 fi
 DEV=false
-[[ "$MODE" == "--dev" ]] && DEV=true
+PUBLISH=false
+for arg in "${@:2}"; do
+    case "$arg" in
+        --dev) DEV=true ;;
+        --publish) PUBLISH=true ;;
+        *) echo "알 수 없는 옵션: $arg"; exit 1 ;;
+    esac
+done
+TAG="v$VERSION"
 
 step() { print -P "\n%F{cyan}▶ $1%f"; }
 fail() { print -P "\n%F{red}✖ $1%f"; exit 1; }
@@ -54,6 +66,25 @@ echo "   $SIGN_IDENTITY"
 if ! $DEV; then
     xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1 || fail "공증 자격 증명 '$NOTARY_PROFILE' 을(를) 찾을 수 없습니다.
    xcrun notarytool store-credentials $NOTARY_PROFILE --apple-id <이메일> --team-id <팀ID> --password <앱 암호>"
+fi
+
+# ---------- GitHub 업로드 사전 확인 ----------
+if $PUBLISH; then
+    step "GitHub 업로드 사전 확인"
+    GH="$(command -v gh || true)"
+    [[ -z "$GH" && -x "$HOME/.local/bin/gh" ]] && GH="$HOME/.local/bin/gh"
+    [[ -n "$GH" ]] || fail "gh(GitHub CLI)가 없습니다."
+    "$GH" auth status >/dev/null 2>&1 || fail "gh 로그인이 필요합니다:  gh auth login"
+    REPO="$("$GH" repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null)" || fail "GitHub 저장소를 찾을 수 없습니다 (origin 원격 확인)."
+    [[ -z "$(git status --porcelain)" ]] || fail "커밋하지 않은 변경이 있습니다. 릴리스는 커밋된 코드로만 만듭니다."
+    git fetch -q origin
+    BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+    git rev-parse -q --verify "origin/$BRANCH" >/dev/null || fail "원격에 '$BRANCH' 브랜치가 없습니다. 먼저 git push 하세요."
+    [[ "$(git rev-list --count "origin/$BRANCH..HEAD")" == 0 ]] || fail "push 안 된 커밋이 있습니다. 먼저 git push 하세요."
+    if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null || git ls-remote --exit-code --tags origin "$TAG" >/dev/null 2>&1; then
+        fail "태그 $TAG 이(가) 이미 있습니다. 버전을 올리세요."
+    fi
+    echo "   $REPO · $BRANCH @ $(git rev-parse --short HEAD) → $TAG"
 fi
 
 # ---------- 빌드 ----------
@@ -131,6 +162,37 @@ else
     spctl -a -t exec -vv "$APP" 2>&1 | sed 's/^/   /'
     spctl -a -t open --context context:primary-signature -vv "$DMG" 2>&1 | sed 's/^/   /'
 fi
-shasum -a 256 "$DMG" | tee "$DMG.sha256" | sed 's/^/   sha256 /'
+(cd "$OUT" && shasum -a 256 "$(basename "$DMG")") | tee "$DMG.sha256" | sed 's/^/   sha256 /'
 rm -rf "$STAGE"
+
+# ---------- GitHub Releases 업로드 ----------
+if $PUBLISH; then
+    step "GitHub Releases 업로드 ($TAG)"
+    git tag -a "$TAG" -m "$APP_NAME $VERSION"
+    git push -q origin "$TAG"
+    NOTES="$OUT/release-notes.md"
+    {
+        $DEV && echo "> ⚠️ 시험 빌드입니다. 공증되지 않아 다른 맥에서는 Gatekeeper 경고가 뜹니다.\n"
+        echo "## 설치"
+        echo "1. \`$(basename "$DMG")\`을 열고 TouchBridge를 응용 프로그램 폴더로 끌어다 놓습니다."
+        echo "2. 처음 실행할 때 **입력 모니터링**과 **손쉬운 사용** 권한을 허용합니다 (시스템 설정 › 개인정보 보호 및 보안)."
+        echo "3. 메뉴 막대 아이콘에서 대상 모니터를 고르고, 필요하면 **로그인 시 자동 실행**을 켭니다."
+        echo ""
+        echo "문제가 있으면 \`~/Library/Logs/TouchBridge.log\`를 첨부해 이슈로 알려 주세요."
+        echo ""
+        echo "SHA-256: \`$(awk '{print $1}' "$DMG.sha256")\`"
+    } > "$NOTES"
+    FLAGS=()
+    $DEV && FLAGS=(--draft --prerelease)
+    URL="$("$GH" release create "$TAG" "$DMG" "$DMG.sha256" --title "$APP_NAME $VERSION$($DEV && echo ' (시험 빌드)')" \
+        --notes-file "$NOTES" --generate-notes --verify-tag "${FLAGS[@]}")" || {
+        echo "   업로드 실패 — 만든 태그를 되돌립니다."
+        git push -q origin ":refs/tags/$TAG" || true
+        git tag -d "$TAG" >/dev/null || true
+        fail "GitHub 릴리스 생성 실패"
+    }
+    rm -f "$NOTES"
+    echo "   $URL"
+    $DEV && echo "   (초안 + 사전 릴리스: GitHub에서 확인 후 직접 게시하거나 삭제하세요)"
+fi
 print -P "\n%F{green}✅ $DMG%f"

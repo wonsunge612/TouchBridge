@@ -15,7 +15,10 @@ open build/TouchBridge.app
 ```sh
 ./release.sh 1.0.0         # universal 빌드 → Developer ID 서명(강화된 런타임) → 앱 공증·staple → DMG 서명·공증·staple
 ./release.sh 1.0.0 --dev   # 시험용: Apple Development 인증서로 서명, 공증 생략
+./release.sh 1.0.0 --publish         # 빌드 후 v1.0.0 태그를 만들고 GitHub Releases에 DMG 업로드
+./release.sh 1.0.0 --dev --publish   # 시험 빌드를 초안 + 사전 릴리스로 업로드
 ```
+`--publish`는 커밋하지 않은 변경, push 안 된 커밋, 이미 있는 태그가 있으면 빌드를 시작하기 전에 멈춥니다.
 결과물은 `dist/TouchBridge-<버전>.dmg`와 `.sha256` 파일입니다. 정식 배포에는 다음 두 가지를 한 번 준비해야 합니다.
 1. Apple Developer Program에 가입한 뒤 **Developer ID Application** 인증서를 만듭니다 (Xcode › Settings › Accounts › Manage Certificates).
 2. 공증 자격 증명을 키체인에 저장합니다:
