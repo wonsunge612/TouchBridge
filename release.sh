@@ -22,6 +22,8 @@
 #   NOTARY_PROFILE  notarytool 키체인 프로필 이름 (기본: TouchBridgeNotary)
 #
 # 결과물: dist/TouchBridge-<버전>.dmg (+ .sha256)
+# --publish는 버전 없는 TouchBridge.dmg도 함께 올린다 → 항상 최신을 가리키는 고정 링크:
+#   https://github.com/<소유자>/<저장소>/releases/latest/download/TouchBridge.dmg
 
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -170,9 +172,14 @@ if $PUBLISH; then
     step "GitHub Releases 업로드 ($TAG)"
     git tag -a "$TAG" -m "$APP_NAME $VERSION"
     git push -q origin "$TAG"
+    # 고정 링크용 사본 (releases/latest/download/TouchBridge.dmg)
+    LATEST_DMG="$OUT/$APP_NAME.dmg"
+    cp "$DMG" "$LATEST_DMG"
+    LATEST_URL="https://github.com/$REPO/releases/latest/download/$APP_NAME.dmg"
     NOTES="$OUT/release-notes.md"
     {
         $DEV && echo "> ⚠️ 시험 빌드입니다. 공증되지 않아 다른 맥에서는 Gatekeeper 경고가 뜹니다.\n"
+        $DEV || echo "**바로 받기:** [$APP_NAME.dmg]($LATEST_URL) (항상 최신 버전)\n"
         echo "## 설치"
         echo "1. \`$(basename "$DMG")\`을 열고 TouchBridge를 응용 프로그램 폴더로 끌어다 놓습니다."
         echo "2. 처음 실행할 때 **입력 모니터링**과 **손쉬운 사용** 권한을 허용합니다 (시스템 설정 › 개인정보 보호 및 보안)."
@@ -184,15 +191,16 @@ if $PUBLISH; then
     } > "$NOTES"
     FLAGS=()
     $DEV && FLAGS=(--draft --prerelease)
-    URL="$("$GH" release create "$TAG" "$DMG" "$DMG.sha256" --title "$APP_NAME $VERSION$($DEV && echo ' (시험 빌드)')" \
+    URL="$("$GH" release create "$TAG" "$DMG" "$DMG.sha256" "$LATEST_DMG" --title "$APP_NAME $VERSION$($DEV && echo ' (시험 빌드)')" \
         --notes-file "$NOTES" --generate-notes --verify-tag "${FLAGS[@]}")" || {
         echo "   업로드 실패 — 만든 태그를 되돌립니다."
         git push -q origin ":refs/tags/$TAG" || true
         git tag -d "$TAG" >/dev/null || true
         fail "GitHub 릴리스 생성 실패"
     }
-    rm -f "$NOTES"
+    rm -f "$NOTES" "$LATEST_DMG"
     echo "   $URL"
+    $DEV || echo "   고정 다운로드 링크: $LATEST_URL"
     $DEV && echo "   (초안 + 사전 릴리스: GitHub에서 확인 후 직접 게시하거나 삭제하세요)"
 fi
 print -P "\n%F{green}✅ $DMG%f"

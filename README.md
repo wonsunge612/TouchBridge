@@ -2,6 +2,11 @@
 
 외장 USB 터치 모니터(브랜드 무관)의 터치를 선택한 모니터 영역에 매핑하는 macOS 메뉴 막대 앱.
 
+## 다운로드
+**[TouchBridge.dmg 받기](https://github.com/wonsunge612/TouchBridge/releases/latest/download/TouchBridge.dmg)** (항상 최신 버전) · [모든 릴리스](https://github.com/wonsunge612/TouchBridge/releases)
+
+macOS 13 이상, Apple Silicon과 Intel 모두 지원합니다. DMG를 열고 앱을 응용 프로그램 폴더로 옮긴 뒤 실행하고, 입력 모니터링과 손쉬운 사용 권한을 허용하세요.
+
 ## 빌드 / 실행
 ```sh
 ./build_app.sh            # → build/TouchBridge.app (ad-hoc 서명)
