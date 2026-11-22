@@ -1,0 +1,14 @@
+# SwiftPM / 빌드 산출물
+.build/
+build/
+dist/
+*.dmg
+*.dmg.sha256
+
+# macOS
+.DS_Store
+
+# Xcode (열어 볼 경우)
+.swiftpm/
+*.xcodeproj/
+xcuserdata/
