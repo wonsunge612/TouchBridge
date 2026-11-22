@@ -16,6 +16,14 @@ open build/TouchBridge.app
 (시스템 설정 › 개인정보 보호 및 보안). ad-hoc 서명은 빌드할 때마다 서명이 바뀌므로,
 다시 빌드한 뒤에는 목록에서 TouchBridge를 지웠다가 다시 허용해야 할 수 있습니다.
 
+## 커밋
+```sh
+./commit.sh "핀치 감도 조정"   # 빌드 확인 → 개인정보 검사 → 커밋 → GitHub push
+./commit.sh                   # 메시지를 비우면 바뀐 파일 이름으로 자동 생성
+./commit.sh -n "설명"          # push 없이 커밋만
+```
+빌드가 깨졌거나, 커밋 이메일이 GitHub noreply 주소가 아니거나, 바뀐 내용에 이메일·인증서 ID·토큰처럼 보이는 값이 있으면 커밋하지 않고 멈춥니다. 내 이메일과 인증서 ID는 스크립트에 적지 않고 실행할 때마다 이 맥에서 읽어 옵니다.
+
 ## 배포
 ```sh
 ./release.sh 1.0.0         # universal 빌드 → Developer ID 서명(강화된 런타임) → 앱 공증·staple → DMG 서명·공증·staple
