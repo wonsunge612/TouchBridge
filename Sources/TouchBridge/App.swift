@@ -4,6 +4,7 @@ import AppKit
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var controller: TouchController!
     private var statusMenu: StatusMenuController!
+    private var updater: Updater!
 
     static func main() {
         let app = NSApplication.shared
@@ -15,7 +16,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         controller = TouchController()
-        statusMenu = StatusMenuController(controller: controller)
+        updater = Updater()
+        statusMenu = StatusMenuController(controller: controller, updater: updater)
         controller.start()
     }
 

@@ -37,6 +37,13 @@ open build/TouchBridge.app
 2. 공증 자격 증명을 키체인에 저장합니다:
    `xcrun notarytool store-credentials TouchBridgeNotary --apple-id <이메일> --team-id <팀ID> --password <앱 암호>`
 
+### 자동 업데이트 (Sparkle)
+앱은 하루 한 번 `releases/latest/download/appcast.xml`을 확인하고, 새 버전이 있으면 변경 내용과 함께 설치 여부를 묻습니다. 메뉴의 **업데이트 확인…**으로 바로 확인할 수도 있습니다. `release.sh`가 DMG를 EdDSA 키로 서명해 `appcast.xml`을 만들고, `--publish`일 때 릴리스에 함께 올립니다.
+- 서명 키는 로그인 키체인에 있습니다. **키를 잃어버리면 기존 사용자에게 업데이트를 보낼 수 없으므로** 반드시 백업하세요: `.build/artifacts/sparkle/Sparkle/bin/generate_keys -x ~/안전한-위치/sparkle-private-key`
+- 공개 키는 `Resources/Info.plist`의 `SUPublicEDKey`입니다. `release.sh`가 키체인의 키와 일치하는지 빌드 전에 확인합니다.
+- 저장소가 비공개인 동안에는 appcast를 받을 수 없어 업데이트 확인이 실패합니다. 공개한 뒤부터 동작합니다.
+- 로컬 시험: `DOWNLOAD_BASE=http://127.0.0.1:8765 BUILD_NUMBER=101 ./release.sh 1.0.1 --dev`로 만든 `dist/`를 로컬 서버로 띄우고, 이전 버전 앱을 `TOUCHBRIDGE_FEED_URL=http://127.0.0.1:8765/appcast.xml TOUCHBRIDGE_UPDATE_TEST=1`로 실행하면 창 없이 확인 → 다운로드 → (종료 시) 설치까지 진행됩니다.
+
 샌드박스에서는 장치 독점, 이벤트 주입, 손쉬운 사용 API를 쓸 수 없어 Mac App Store로는 배포할 수 없습니다. 사용자는 첫 실행 때 입력 모니터링과 손쉬운 사용 권한을 허용해야 합니다.
 
 ## 동작 방식
@@ -60,6 +67,7 @@ open build/TouchBridge.app
 - 핀치 줌 감도: 낮게 / 보통(기본) / 높게 / 손가락과 1:1. 출력 배율 = 손가락 간격 비율^감도(0.35 / 0.5 / 0.75 / 1.0)
 - 4포인트 터치 보정… (⌘K, ESC 취소, R 다시 시작) / 보정 초기화
 - 권한이 없으면 권한 안내 항목 표시
+- 업데이트 확인… (⌘U), 자동으로 업데이트 확인, 현재 버전
 - 로그인 시 자동 실행 (`SMAppService`, 응용 프로그램 폴더에 설치한 뒤 켜는 것을 권장)
 - 종료 (⌘Q)
 

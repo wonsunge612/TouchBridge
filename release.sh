@@ -20,6 +20,12 @@
 # 환경 변수 (선택)
 #   SIGN_IDENTITY   서명 인증서 이름 (기본: 키체인에서 자동 탐색)
 #   NOTARY_PROFILE  notarytool 키체인 프로필 이름 (기본: TouchBridgeNotary)
+#   DOWNLOAD_BASE   appcast 안 DMG 다운로드 주소의 앞부분 (기본: GitHub 릴리스 주소. 로컬 업데이트 시험용)
+#
+# Sparkle 자동 업데이트: DMG를 EdDSA 키로 서명해 dist/appcast.xml 을 만들고, --publish 시 릴리스에 함께 올린다.
+#   앱은 releases/latest/download/appcast.xml 을 확인하므로 항상 최신 릴리스의 appcast 가 쓰인다.
+#   서명 키는 로그인 키체인에 있으며(.build/artifacts/sparkle/Sparkle/bin/generate_keys), 잃어버리면
+#   기존 사용자에게 업데이트를 보낼 수 없으니 generate_keys -x <파일> 로 내보내 안전한 곳에 백업할 것.
 #
 # 결과물: dist/TouchBridge-<버전>.dmg (+ .sha256)
 # --publish는 버전 없는 TouchBridge.dmg도 함께 올린다 → 항상 최신을 가리키는 고정 링크:
@@ -70,6 +76,17 @@ if ! $DEV; then
    xcrun notarytool store-credentials $NOTARY_PROFILE --apple-id <이메일> --team-id <팀ID> --password <앱 암호>"
 fi
 
+# ---------- Sparkle 서명 키 ----------
+step "Sparkle 업데이트 서명 키 확인"
+SPARKLE_BIN=".build/artifacts/sparkle/Sparkle/bin"
+[[ -x "$SPARKLE_BIN/sign_update" ]] || swift package resolve >/dev/null
+KEYCHAIN_PUB="$("$SPARKLE_BIN/generate_keys" -p 2>/dev/null)" || fail "Sparkle 서명 키가 키체인에 없습니다.
+   새로 만들려면: $SPARKLE_BIN/generate_keys   (만든 공개 키를 Resources/Info.plist 의 SUPublicEDKey 에 넣기)"
+PLIST_PUB="$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' Resources/Info.plist)"
+[[ "$KEYCHAIN_PUB" == "$PLIST_PUB" ]] || fail "키체인의 Sparkle 키와 Info.plist 의 SUPublicEDKey 가 다릅니다. 이대로 배포하면 업데이트가 거부됩니다."
+echo "   공개 키 일치 (${PLIST_PUB[1,12]}…)"
+REPO_SLUG="$(git remote get-url origin 2>/dev/null | sed -E 's#^(https://github\.com/|git@github\.com:)##; s#\.git$##')"
+
 # ---------- GitHub 업로드 사전 확인 ----------
 if $PUBLISH; then
     step "GitHub 업로드 사전 확인"
@@ -97,27 +114,20 @@ ARCHS="$(lipo -archs "$BIN")"
 [[ "$ARCHS" == *arm64* && "$ARCHS" == *x86_64* ]] || fail "universal 바이너리가 아닙니다: $ARCHS"
 echo "   아키텍처: $ARCHS"
 
-# ---------- 앱 번들 ----------
-step "앱 번들 구성 (버전 $VERSION)"
+# ---------- 앱 번들 + 서명 ----------
+step "앱 번들 구성 + 서명 (버전 $VERSION, 강화된 런타임)"
 OUT="dist"
 STAGE="$OUT/stage"
 APP="$STAGE/$APP_NAME.app"
 rm -rf "$STAGE"
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-cp "$BIN" "$APP/Contents/MacOS/$APP_NAME"
-cp Resources/Info.plist "$APP/Contents/Info.plist"
-[[ -f Resources/AppIcon.icns ]] && cp Resources/AppIcon.icns "$APP/Contents/Resources/"
-BUILD_NUMBER="$(date +%Y%m%d%H%M)"
-/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$APP/Contents/Info.plist"
-/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUMBER" "$APP/Contents/Info.plist"
-echo "   CFBundleShortVersionString=$VERSION  CFBundleVersion=$BUILD_NUMBER"
-
-# ---------- 서명 ----------
-step "서명 (강화된 런타임)"
+mkdir -p "$STAGE"
+BUILD_NUMBER="${BUILD_NUMBER:-$(date +%Y%m%d%H%M)}"
 TS="--timestamp"; $DEV && TS="--timestamp=none"
-codesign --force --options runtime $TS --sign "$SIGN_IDENTITY" "$APP"
-codesign --verify --strict --verbose=2 "$APP" 2>&1 | sed 's/^/   /'
-codesign -d --verbose=2 "$APP" 2>&1 | grep -E "^(Authority|Runtime Version|flags)" | head -3 | sed 's/^/   /'
+scripts/bundle-app.sh "${BIN:h}" "$APP" "$SIGN_IDENTITY" "$TS" "$VERSION" "$BUILD_NUMBER"
+echo "   CFBundleShortVersionString=$VERSION  CFBundleVersion=$BUILD_NUMBER"
+codesign -d --verbose=2 "$APP" 2>&1 | grep -E "^Authority" | head -1 | sed 's/^/   /'
+codesign -d --verbose=2 "$APP" 2>&1 | grep -oE "flags=0x[0-9a-f]+\([a-z,-]+\)" | sed 's/^/   /'
+echo "   Sparkle $(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Frameworks/Sparkle.framework/Resources/Info.plist") 포함"
 
 notarize() {   # $1: 제출할 파일
     local log="$OUT/notary-$(basename "$1").json"
@@ -156,6 +166,32 @@ if ! $DEV; then
     xcrun stapler staple "$DMG" | tail -1 | sed 's/^/   /'
 fi
 
+# ---------- Sparkle appcast ----------
+step "업데이트 정보 (appcast.xml)"
+SIG_ATTRS="$("$SPARKLE_BIN/sign_update" "$DMG")"     # sparkle:edSignature="…" length="…"
+DMG_URL="${DOWNLOAD_BASE:-https://github.com/$REPO_SLUG/releases/download/$TAG}/$(basename "$DMG")"
+NOTES_LINK=""
+[[ -z "${DOWNLOAD_BASE:-}" ]] && NOTES_LINK="      <sparkle:releaseNotesLink>https://github.com/$REPO_SLUG/releases/tag/$TAG</sparkle:releaseNotesLink>"
+cat > "$OUT/appcast.xml" <<XML
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+  <channel>
+    <title>$APP_NAME</title>
+    <item>
+      <title>$APP_NAME $VERSION</title>
+      <pubDate>$(LC_ALL=C date -u "+%a, %d %b %Y %H:%M:%S +0000")</pubDate>
+      <sparkle:version>$BUILD_NUMBER</sparkle:version>
+      <sparkle:shortVersionString>$VERSION</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+$NOTES_LINK
+      <enclosure url="$DMG_URL" type="application/octet-stream" $SIG_ATTRS />
+    </item>
+  </channel>
+</rss>
+XML
+xmllint --noout "$OUT/appcast.xml" || fail "appcast.xml 형식 오류"
+echo "   $OUT/appcast.xml → $DMG_URL"
+
 # ---------- 확인 ----------
 step "확인"
 if $DEV; then
@@ -191,7 +227,7 @@ if $PUBLISH; then
     } > "$NOTES"
     FLAGS=()
     $DEV && FLAGS=(--draft --prerelease)
-    URL="$("$GH" release create "$TAG" "$DMG" "$DMG.sha256" "$LATEST_DMG" --title "$APP_NAME $VERSION$($DEV && echo ' (시험 빌드)')" \
+    URL="$("$GH" release create "$TAG" "$DMG" "$DMG.sha256" "$LATEST_DMG" "$OUT/appcast.xml" --title "$APP_NAME $VERSION$($DEV && echo ' (시험 빌드)')" \
         --notes-file "$NOTES" --generate-notes --verify-tag "${FLAGS[@]}")" || {
         echo "   업로드 실패 — 만든 태그를 되돌립니다."
         git push -q origin ":refs/tags/$TAG" || true

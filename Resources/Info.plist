@@ -12,6 +12,12 @@
     <key>LSMinimumSystemVersion</key><string>13.0</string>
     <key>LSUIElement</key><true/>
     <key>NSHighResolutionCapable</key><true/>
+    <!-- Sparkle 자동 업데이트: 최신 릴리스에 첨부된 appcast.xml 을 하루 한 번 확인 -->
+    <key>SUFeedURL</key><string>https://github.com/wonsunge612/TouchBridge/releases/latest/download/appcast.xml</string>
+    <key>SUPublicEDKey</key><string>RTAWOJ/LQ3OqRaUrnD8Gb2rdmrUai/HdaVJX3IQQw5E=</string>
+    <key>SUEnableAutomaticChecks</key><true/>
+    <key>SUScheduledCheckInterval</key><integer>86400</integer>
+    <key>LSApplicationCategoryType</key><string>public.app-category.utilities</string>
     <key>NSHumanReadableCopyright</key><string>TouchBridge — universal external touch display mapper</string>
 </dict>
 </plist>

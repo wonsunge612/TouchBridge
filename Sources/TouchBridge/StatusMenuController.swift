@@ -5,10 +5,12 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let menu = NSMenu()
     private let controller: TouchController
+    private let updater: Updater
     private let calibration = CalibrationWindowController()
 
-    init(controller: TouchController) {
+    init(controller: TouchController, updater: Updater) {
         self.controller = controller
+        self.updater = updater
         super.init()
         menu.delegate = self
         menu.autoenablesItems = false
@@ -118,6 +120,17 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
             }
         }
 
+        // 업데이트
+        menu.addItem(.separator())
+        let check = NSMenuItem(title: "업데이트 확인…", action: #selector(Updater.checkForUpdates(_:)), keyEquivalent: "u")
+        check.target = updater
+        check.isEnabled = updater.canCheck
+        menu.addItem(check)
+        let auto = item("자동으로 업데이트 확인", #selector(toggleAutoUpdate))
+        auto.state = updater.automaticallyChecks ? .on : .off
+        menu.addItem(auto)
+        menu.addItem(disabled("버전 \(Updater.currentVersion)"))
+
         menu.addItem(.separator())
         menu.addItem(item("종료", #selector(quit), key: "q"))
     }
@@ -154,6 +167,8 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
             if alert.runModal() == .alertFirstButtonReturn { LoginItem.openSettings() }
         }
     }
+
+    @objc private func toggleAutoUpdate() { updater.automaticallyChecks.toggle() }
 
     @objc private func openLoginItems() { LoginItem.openSettings() }
 
