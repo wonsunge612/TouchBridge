@@ -40,6 +40,7 @@ open build/TouchBridge.app
 ./release.sh 1.0.0 --dev   # 시험용: Apple Development 인증서로 서명, 공증 생략
 ./release.sh 1.0.0 --publish         # 빌드 후 v1.0.0 태그를 만들고 GitHub Releases에 DMG 업로드
 ./release.sh 1.0.0 --dev --publish   # 시험 빌드를 초안 + 사전 릴리스로 업로드
+./release.sh 1.0.0 --dev --public    # 공증 없는 빌드를 바로 정식(최신) 릴리스로 공개 → 다운로드 링크가 이 버전을 가리킴
 ```
 `--publish`는 커밋하지 않은 변경, push 안 된 커밋, 이미 있는 태그가 있으면 빌드를 시작하기 전에 멈춥니다.
 결과물은 `dist/TouchBridge-<버전>.dmg`와 `.sha256` 파일입니다. 정식 배포에는 다음 두 가지를 한 번 준비해야 합니다.

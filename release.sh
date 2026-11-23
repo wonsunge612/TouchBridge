@@ -6,6 +6,8 @@
 #   ./release.sh 1.0.0 --dev    파이프라인 시험용: Apple Development 인증서로 서명, 공증 생략
 #   ./release.sh 1.0.0 --publish         빌드 후 GitHub Releases에 v1.0.0으로 업로드
 #   ./release.sh 1.0.0 --dev --publish   시험 빌드를 '초안 + 사전 릴리스'로 업로드 (공개되지 않음)
+#   ./release.sh 1.0.0 --dev --public    공증 없는 빌드를 바로 정식(최신) 릴리스로 공개 (--publish 포함)
+#                                        고정 다운로드 링크가 이 버전을 가리키고, 노트에 '그래도 열기' 안내가 들어간다
 #
 # --publish 조건: gh 로그인, 커밋 안 된 변경 없음, 현재 커밋이 원격에 push됨, 같은 버전 태그 없음
 #   (공증처럼 오래 걸리는 단계 전에 미리 확인한다)
@@ -39,18 +41,24 @@ VERSION="${1:-}"
 NOTARY_PROFILE="${NOTARY_PROFILE:-TouchBridgeNotary}"
 
 if [[ -z "$VERSION" || ! "$VERSION" =~ '^[0-9]+\.[0-9]+(\.[0-9]+)?$' ]]; then
-    echo "사용법: ./release.sh <버전> [--dev] [--publish]   예) ./release.sh 1.0.0 --publish"; exit 1
+    echo "사용법: ./release.sh <버전> [--dev] [--publish] [--public]   예) ./release.sh 1.0.0 --publish"; exit 1
 fi
 DEV=false
 PUBLISH=false
+PUBLIC=false
 for arg in "${@:2}"; do
     case "$arg" in
         --dev) DEV=true ;;
         --publish) PUBLISH=true ;;
+        --public) PUBLIC=true; PUBLISH=true ;;
         *) echo "알 수 없는 옵션: $arg"; exit 1 ;;
     esac
 done
 TAG="v$VERSION"
+# 초안 + 사전 릴리스로 올릴지: --dev 이면서 --public 이 아닐 때만
+DRAFT=false
+$DEV && ! $PUBLIC && DRAFT=true
+if $PUBLIC && ! $DEV; then echo "--public 은 --dev 와 함께 씁니다 (정식 빌드는 --publish 만으로 공개됩니다)."; exit 1; fi
 
 step() { print -P "\n%F{cyan}▶ $1%f"; }
 fail() { print -P "\n%F{red}✖ $1%f"; exit 1; }
@@ -214,8 +222,8 @@ if $PUBLISH; then
     LATEST_URL="https://github.com/$REPO/releases/latest/download/$APP_NAME.dmg"
     NOTES="$OUT/release-notes.md"
     {
-        $DEV && echo "> ⚠️ 시험 빌드입니다. 공증되지 않아 다른 맥에서는 Gatekeeper 경고가 뜹니다.\n"
-        $DEV || echo "**바로 받기:** [$APP_NAME.dmg]($LATEST_URL) (항상 최신 버전)\n"
+        $DRAFT && echo "> ⚠️ 시험 빌드입니다. 공증되지 않아 다른 맥에서는 Gatekeeper 경고가 뜹니다.\n"
+        $DRAFT || echo "**바로 받기:** [$APP_NAME.dmg]($LATEST_URL) (항상 최신 버전)\n"
         echo "## 설치"
         echo "1. \`$(basename "$DMG")\`을 열고 TouchBridge를 응용 프로그램 폴더로 끌어다 놓습니다."
         echo "2. 처음 실행할 때 **입력 모니터링**과 **손쉬운 사용** 권한을 허용합니다 (시스템 설정 › 개인정보 보호 및 보안)."
@@ -238,8 +246,8 @@ if $PUBLISH; then
         echo "SHA-256: \`$(awk '{print $1}' "$DMG.sha256")\`"
     } > "$NOTES"
     FLAGS=()
-    $DEV && FLAGS=(--draft --prerelease)
-    URL="$("$GH" release create "$TAG" "$DMG" "$DMG.sha256" "$LATEST_DMG" "$OUT/appcast.xml" --title "$APP_NAME $VERSION$($DEV && echo ' (시험 빌드)')" \
+    if $DRAFT; then FLAGS=(--draft --prerelease); else FLAGS=(--latest); fi
+    URL="$("$GH" release create "$TAG" "$DMG" "$DMG.sha256" "$LATEST_DMG" "$OUT/appcast.xml" --title "$APP_NAME $VERSION$($DRAFT && echo ' (시험 빌드)')" \
         --notes-file "$NOTES" --generate-notes --verify-tag "${FLAGS[@]}")" || {
         echo "   업로드 실패 — 만든 태그를 되돌립니다."
         git push -q origin ":refs/tags/$TAG" || true
@@ -248,7 +256,7 @@ if $PUBLISH; then
     }
     rm -f "$NOTES" "$LATEST_DMG"
     echo "   $URL"
-    $DEV || echo "   고정 다운로드 링크: $LATEST_URL"
-    $DEV && echo "   (초안 + 사전 릴리스: GitHub에서 확인 후 직접 게시하거나 삭제하세요)"
+    $DRAFT || echo "   고정 다운로드 링크: $LATEST_URL"
+    $DRAFT && echo "   (초안 + 사전 릴리스: GitHub에서 확인 후 직접 게시하거나 삭제하세요)"
 fi
 print -P "\n%F{green}✅ $DMG%f"
