@@ -3,7 +3,7 @@
 #
 # 사용법
 #   ./release.sh 1.0.0          정식 배포 (Developer ID 인증서 + 공증 자격 증명 필요)
-#   ./release.sh 1.0.0 --dev    파이프라인 시험용: Apple Development 인증서로 서명, 공증 생략
+#   ./release.sh 1.0.0 --dev    공증 없는 빌드: 자체 서명 인증서 "TouchBridge"로 서명, 공증 생략
 #   ./release.sh 1.0.0 --publish         빌드 후 GitHub Releases에 v1.0.0으로 업로드
 #   ./release.sh 1.0.0 --dev --publish   시험 빌드를 '초안 + 사전 릴리스'로 업로드 (공개되지 않음)
 #   ./release.sh 1.0.0 --dev --public    공증 없는 빌드를 바로 정식(최신) 릴리스로 공개 (--publish 포함)
@@ -18,6 +18,12 @@
 #   2. 공증 자격 증명을 키체인에 저장 (앱 암호는 appleid.apple.com 에서 발급):
 #        xcrun notarytool store-credentials TouchBridgeNotary \
 #          --apple-id "you@example.com" --team-id "TEAMID" --password "앱 암호"
+#
+# 공증 없는 빌드(--dev)용 서명 인증서: 키체인의 자체 서명 인증서 "TouchBridge"
+#   이름에 개인정보가 없고(Apple Development 인증서 이름에는 Apple ID 이메일이 들어 있어 DMG를 받은 누구나 볼 수 있음),
+#   같은 인증서로 계속 서명해야 업데이트 후에도 입력 모니터링/손쉬운 사용 권한이 유지된다.
+#   잃어버리면 새로 만들 수 있지만, 그 뒤 첫 업데이트에서 사용자가 권한을 다시 허용해야 한다.
+#   서명 이름에 이메일(@)이 들어 있으면 빌드를 시작하지 않는다.
 #
 # 환경 변수 (선택)
 #   SIGN_IDENTITY   서명 인증서 이름 (기본: 키체인에서 자동 탐색)
@@ -67,18 +73,23 @@ fail() { print -P "\n%F{red}✖ $1%f"; exit 1; }
 step "서명 인증서 확인"
 if [[ -z "${SIGN_IDENTITY:-}" ]]; then
     if $DEV; then
-        SIGN_IDENTITY="$(security find-identity -v -p codesigning | awk -F'"' '/Apple Development/ {print $2; exit}')"
+        # 자체 서명이라 '신뢰되지 않음'으로 표시되지만(-v 목록에 안 나옴) 서명에는 문제없다. SHA-1로 지정.
+        SIGN_IDENTITY="$(security find-identity -p codesigning | awk '/"TouchBridge"/ {print $2; exit}')"
     else
         SIGN_IDENTITY="$(security find-identity -v -p codesigning | awk -F'"' '/Developer ID Application/ {print $2; exit}')"
     fi
 fi
 if [[ -z "$SIGN_IDENTITY" ]]; then
-    $DEV && fail "Apple Development 인증서가 없습니다."
+    $DEV && fail "자체 서명 인증서 \"TouchBridge\"가 키체인에 없습니다. (운영 설명서의 인증서 만들기 참고)"
     fail "Developer ID Application 인증서가 없습니다.
    Apple Developer Program 가입 후 Xcode › Settings › Accounts › Manage Certificates 에서 만드세요.
    인증서 없이 파이프라인만 시험하려면:  ./release.sh $VERSION --dev"
 fi
-echo "   $SIGN_IDENTITY"
+# 해시로 지정했으면 이름으로 바꿔서 확인 (이름으로 지정했으면 그대로)
+SIGN_NAME="$(security find-identity -p codesigning | awk -F'"' -v h="$SIGN_IDENTITY" 'index($0, h) {print $2; exit}')"
+[[ -n "$SIGN_NAME" ]] || SIGN_NAME="$SIGN_IDENTITY"
+[[ "$SIGN_NAME" == *@* ]] && fail "서명 인증서 이름에 이메일이 들어 있습니다: 배포 파일에서 누구나 볼 수 있으니 쓰지 않습니다."
+echo "   $SIGN_NAME"
 if ! $DEV; then
     xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1 || fail "공증 자격 증명 '$NOTARY_PROFILE' 을(를) 찾을 수 없습니다.
    xcrun notarytool store-credentials $NOTARY_PROFILE --apple-id <이메일> --team-id <팀ID> --password <앱 암호>"
