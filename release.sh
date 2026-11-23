@@ -127,8 +127,10 @@ fi
 
 # ---------- 빌드 ----------
 step "universal 빌드 (arm64 + x86_64)"
-swift build -c release --arch arm64 --arch x86_64 2>&1 | grep -vE "x86_64 architecture is deprecated" | tail -3
-BIN="$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)/$APP_NAME"
+# 배포 파일에 이 맥의 경로(/Users/<사용자 이름>/…)가 남지 않게: 소스 경로는 상대 경로로, 디버그 정보(.o 경로)는 링크 때 제거
+BUILD_FLAGS=(-c release --arch arm64 --arch x86_64 -Xswiftc -file-prefix-map -Xswiftc "$PWD=." -Xlinker -S)
+swift build "${BUILD_FLAGS[@]}" 2>&1 | grep -vE "x86_64 architecture is deprecated" | tail -3
+BIN="$(swift build "${BUILD_FLAGS[@]}" --show-bin-path)/$APP_NAME"
 ARCHS="$(lipo -archs "$BIN")"
 [[ "$ARCHS" == *arm64* && "$ARCHS" == *x86_64* ]] || fail "universal 바이너리가 아닙니다: $ARCHS"
 echo "   아키텍처: $ARCHS"
@@ -142,7 +144,10 @@ rm -rf "$STAGE"
 mkdir -p "$STAGE"
 BUILD_NUMBER="${BUILD_NUMBER:-$(date +%Y%m%d%H%M)}"
 TS="--timestamp"; $DEV && TS="--timestamp=none"
-scripts/bundle-app.sh "${BIN:h}" "$APP" "$SIGN_IDENTITY" "$TS" "$VERSION" "$BUILD_NUMBER"
+# 자체 서명(팀 ID 없음)이면 라이브러리 검증 예외가 있어야 앱이 Sparkle.framework 를 불러온다
+APP_ENTITLEMENTS=""
+$DEV && APP_ENTITLEMENTS="Resources/SelfSigned.entitlements"
+APP_ENTITLEMENTS="$APP_ENTITLEMENTS" scripts/bundle-app.sh "${BIN:h}" "$APP" "$SIGN_IDENTITY" "$TS" "$VERSION" "$BUILD_NUMBER"
 echo "   CFBundleShortVersionString=$VERSION  CFBundleVersion=$BUILD_NUMBER"
 codesign -d --verbose=2 "$APP" 2>&1 | grep -E "^Authority" | head -1 | sed 's/^/   /'
 codesign -d --verbose=2 "$APP" 2>&1 | grep -oE "flags=0x[0-9a-f]+\([a-z,-]+\)" | sed 's/^/   /'
@@ -171,6 +176,27 @@ if ! $DEV; then
 fi
 
 # ---------- DMG ----------
+# ---------- 실행 시험 (서명·프레임워크 로드 문제는 실행해 봐야 드러난다) ----------
+step "실행 시험 (3초)"
+RUNLOG="$OUT/launch-test.log"
+TOUCHBRIDGE_FEED_URL="http://127.0.0.1:9/none.xml" "$APP/Contents/MacOS/$APP_NAME" > "$RUNLOG" 2>&1 &
+RUNPID=$!
+sleep 3
+if kill -0 $RUNPID 2>/dev/null; then
+    kill $RUNPID; wait $RUNPID 2>/dev/null || true
+    echo "   정상 실행됨"; rm -f "$RUNLOG"
+else
+    grep -m3 -E "dyld|Library not loaded|Team ID|Reason" "$RUNLOG" | cut -c1-200 | sed "s/^/   /"
+    fail "앱이 실행되자마자 종료됐습니다 ($RUNLOG). 이대로 배포하면 사용자 맥에서 열리지 않습니다."
+fi
+
+# ---------- 개인정보 검사 (배포 파일 안) ----------
+step "개인정보 검사 (앱 안의 홈 폴더 경로·사용자 이름)"
+LEAK="$(LC_ALL=C grep -r -a -l -F -e "$HOME" -e "/Users/$USER" "$APP" 2>/dev/null || true)"
+[[ -z "$LEAK" ]] || fail "앱 안에 이 맥의 경로가 들어 있습니다:
+${LEAK//$STAGE\//   }"
+echo "   문제 없음"
+
 step "DMG 만들기"
 DMG="$OUT/$APP_NAME-$VERSION.dmg"
 $DEV && DMG="$OUT/$APP_NAME-$VERSION-dev.dmg"

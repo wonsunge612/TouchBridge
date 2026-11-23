@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- 팀 ID 없는 자체 서명(공증 없는 배포)용. 강화된 런타임의 라이브러리 검증은 "같은 팀 ID"만 허용하므로,
+	     팀 ID가 없으면 앱 안의 Sparkle.framework도 불러오지 못해 실행 즉시 종료된다. Developer ID 서명에는 쓰지 않는다. -->
+	<key>com.apple.security.cs.disable-library-validation</key>
+	<true/>
+</dict>
+</plist>

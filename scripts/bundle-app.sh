@@ -30,6 +30,7 @@ sign --preserve-metadata=entitlements "$SP/XPCServices/Downloader.xpc"
 sign "$SP/Autoupdate"
 sign "$SP/Updater.app"
 sign "$APP/Contents/Frameworks/Sparkle.framework"
-sign "$APP"
+# APP_ENTITLEMENTS: 앱 본체에만 넣을 entitlements (release.sh --dev 가 자체 서명일 때 지정)
+if [[ -n "${APP_ENTITLEMENTS:-}" ]]; then sign --entitlements "$APP_ENTITLEMENTS" "$APP"; else sign "$APP"; fi
 
 codesign --verify --deep --strict "$APP"
