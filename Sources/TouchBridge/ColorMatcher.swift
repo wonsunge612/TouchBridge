@@ -187,6 +187,20 @@ final class ColorMatcher {
             Thread.sleep(forTimeInterval: 1.2)   // 모니터 적용 + 카메라 자동 노출·화이트밸런스 안정
             let prev = e
             e = try errors()
+            // 모니터가 쓰기를 무시하는 경우가 있음 → 다시 읽어 확인하고, 안 들어갔으면 한 번 더 씀
+            var rewrote = false
+            for code in moved.keys {
+                if let v = ch.read(code)?.value, v != gains[code] {
+                    Diag.log("  게인 쓰기가 무시됨 (0x\(String(code, radix: 16)) \(gains[code]!) 썼는데 \(v)) — 다시 씀")
+                    ch.write(code, gains[code]!)
+                    rewrote = true
+                }
+            }
+            if rewrote {
+                Thread.sleep(forTimeInterval: 1.2)
+                for code in moved.keys { if let v = ch.read(code)?.value { gains[code] = v } }   // 그래도 안 되면 실제 값을 믿음
+                e = try errors()
+            }
             // 실제 반응으로 기울기 갱신
             for (code, d) in moved {
                 let change = code == Self.redGain ? abs(e.red - prev.red) : abs(e.blue - prev.blue)
@@ -202,6 +216,8 @@ final class ColorMatcher {
             Thread.sleep(forTimeInterval: 1.2)
             e = try errors()
         }
+        // 기록은 모니터에서 실제로 읽은 값으로
+        for c in [Self.redGain, Self.blueGain] { if let v = ch.read(c)?.value { best.gains[c] = v } }
         let coarse = e
 
         // ---- 소프트웨어 미세 보정: 회색 단계마다 남은 차이를 감마 테이블 배율로 메움 ----

@@ -25,6 +25,9 @@ enum DDC {
 
     static var isAvailable: Bool { createFn != nil && readFn != nil && writeFn != nil }
 
+    /// 같은 화면에는 같은 채널 객체를 돌려줌 — '쓰기 후 읽기 대기' 같은 타이밍을 모든 사용처가 공유하도록
+    private static var cache: [CGDirectDisplayID: DDCChannel] = [:]
+
     /// 외장 디스플레이 ID → DDC 채널.
     /// IORegistry 에서 AppleCLCD2(화면 EDID 정보) 다음에 나오는 외장 DCPAVServiceProxy 가 그 화면의 DDC 통로다.
     static func channels() -> [CGDirectDisplayID: DDCChannel] {
@@ -69,6 +72,9 @@ enum DDC {
         // EDID 정보로 못 짝지었지만 남은 게 하나씩이면 그 둘을 짝지음
         let left = externals.filter { result[$0] == nil }
         if left.count == 1, unused.count == 1 { result[left[0]] = DDCChannel(displayID: left[0], service: unused[0].service) }
+        // 이미 쓰던 채널이 있으면 그것을 계속 사용 (DDC.queue 에서만 호출되므로 동기화 불필요)
+        for id in result.keys { if let old = cache[id] { result[id] = old } }
+        cache = result
         return result
     }
 
