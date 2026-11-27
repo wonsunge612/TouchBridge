@@ -9,8 +9,11 @@ import AppKit
 final class ColorMatcher {
     struct Errors { var red: Double; var blue: Double }   // 외장 모니터가 맥북보다 붉은/푸른 정도 (0.05 = 5%)
     struct Outcome {
-        let before: Errors, after: Errors
+        let before: Errors, after: Errors              // after: DDC 게인만으로 맞춘 결과
         let originalGains: [UInt8: Int], finalGains: [UInt8: Int]
+        let fine: [(level: Double, errors: Errors)]    // 소프트웨어 미세 보정 후 회색 단계별 남은 차이
+        let correction: GammaCorrector.Correction           // 새로 맞춘 소프트웨어 보정
+        let previousCorrection: GammaCorrector.Correction?
     }
     enum Event {
         case status(String)
@@ -21,6 +24,8 @@ final class ColorMatcher {
     static let redGain: UInt8 = 0x16, greenGain: UInt8 = 0x18, blueGain: UInt8 = 0x1A
     private let tolerance = 0.015
     private let maxIterations = 24
+    private let fineLevels = [0.35, 0.6, 0.85]
+    private let fineTolerance = 0.006
 
     private let displayID: CGDirectDisplayID
     private let displayKey: String
@@ -59,27 +64,47 @@ final class ColorMatcher {
         for c in [Self.redGain, Self.greenGain, Self.blueGain] { if let v = ch.read(c)?.value { original[c] = v } }
         guard original.count == 3 else { return emit(.failed("이 모니터는 RGB 게인 조절을 지원하지 않습니다.")) }
         Diag.log("색 맞추기 시작: 원래 게인 R\(original[Self.redGain]!) G\(original[Self.greenGain]!) B\(original[Self.blueGain]!)")
+        // 이전 소프트웨어 보정은 잠시 빼고 모니터 자체 색부터 잰다
+        let previous: GammaCorrector.Correction? = onMain {
+            GammaCorrector.shared.paused.insert(self.displayKey)
+            GammaCorrector.shared.restore(self.displayID)
+            return GammaCorrector.shared.correction(for: self.displayKey)
+        }
+        func resume(_ c: GammaCorrector.Correction?) {
+            onMain {
+                GammaCorrector.shared.paused.remove(self.displayKey)
+                GammaCorrector.shared.setCorrection(c, for: self.displayKey)
+            }
+        }
 
         do {
-            let outcome = try match(ch, original: original)
+            let outcome = try match(ch, original: original, previous: previous)
+            resume(outcome.correction)
             for (c, v) in outcome.finalGains { AppSettings.shared.setMonitorValue(v, code: c, for: displayKey) }
             Diag.log(String(format: "색 맞추기 완료: 붉은 기 %+.1f%%→%+.1f%%, 푸른 기 %+.1f%%→%+.1f%%, 게인 R%d B%d",
                             outcome.before.red * 100, outcome.after.red * 100, outcome.before.blue * 100, outcome.after.blue * 100,
                             outcome.finalGains[Self.redGain]!, outcome.finalGains[Self.blueGain]!))
+            for f in outcome.fine {
+                Diag.log(String(format: "  미세 보정 회색 %.2f: 붉은 기 %+.1f%%, 푸른 기 %+.1f%%", f.level, f.errors.red * 100, f.errors.blue * 100))
+            }
             emit(.finished(outcome))
         } catch let s as Stop {
             for (c, v) in original { ch.write(c, v) }
+            resume(previous)
             Diag.log("색 맞추기 중단: \(s.message) — 원래 게인으로 되돌림")
             emit(.failed(s.message))
         } catch {
             for (c, v) in original { ch.write(c, v) }
+            resume(previous)
             emit(.failed(error.localizedDescription))
         }
         patches.hide()
     }
 
     /// 원래 게인으로 되돌리기 (결과 화면의 '원래대로')
-    static func revert(displayID: CGDirectDisplayID, displayKey: String, to gains: [UInt8: Int], done: @escaping () -> Void) {
+    static func revert(displayID: CGDirectDisplayID, displayKey: String, to gains: [UInt8: Int],
+                       correction: GammaCorrector.Correction?, done: @escaping () -> Void) {
+        DispatchQueue.main.async { GammaCorrector.shared.setCorrection(correction, for: displayKey) }
         DDC.queue.async {
             if let ch = DDC.channels()[displayID] { for (c, v) in gains { ch.write(c, v) } }
             for (c, v) in gains { AppSettings.shared.setMonitorValue(v, code: c, for: displayKey) }
@@ -96,7 +121,14 @@ final class ColorMatcher {
         return f
     }
 
-    private func match(_ ch: DDCChannel, original: [UInt8: Int]) throws -> Outcome {
+    private func onMain<T>(_ f: @escaping () -> T) -> T {
+        if Thread.isMainThread { return f() }
+        var r: T!
+        DispatchQueue.main.sync { r = f() }
+        return r
+    }
+
+    private func match(_ ch: DDCChannel, original: [UInt8: Int], previous: GammaCorrector.Correction?) throws -> Outcome {
         let level: CGFloat = 0.7   // 흰색(1.0)은 카메라에서 포화되기 쉬워 밝은 회색 사용
         emit(.status("화면 위치 찾는 중…"))
         patches.show(mac: 0, ext: 0); let off = try frame()
@@ -170,7 +202,63 @@ final class ColorMatcher {
             Thread.sleep(forTimeInterval: 1.2)
             e = try errors()
         }
-        return Outcome(before: before, after: e, originalGains: original, finalGains: best.gains)
+        let coarse = e
+
+        // ---- 소프트웨어 미세 보정: 회색 단계마다 남은 차이를 감마 테이블 배율로 메움 ----
+        var corr = GammaCorrector.Correction.identity(fineLevels)
+        func applyCorr() {
+            let c = corr
+            onMain { GammaCorrector.shared.apply(c, to: self.displayID) }
+            Thread.sleep(forTimeInterval: 0.7)
+        }
+        /// 외장 모니터는 정확히 lv 를 보여 주고, 맥북 쪽 회색만 움직여 카메라 밝기를 맞춤
+        func equalize(_ lv: Double) throws -> CGFloat {
+            var macLv = CGFloat(lv)
+            for _ in 0..<3 {
+                patches.show(mac: macLv, ext: CGFloat(lv))
+                let f = try frame()
+                let a = Self.measure(f, mMac), b = Self.measure(f, mExt)
+                guard a.g > 0.003, b.g > 0.003 else { break }
+                if abs(a.g / b.g - 1) < 0.03 { break }
+                macLv = min(1, Self.encode(Self.linear(Float(macLv)) * b.g / a.g))
+            }
+            return macLv
+        }
+        func levelErrors(_ macLv: CGFloat, _ lv: Double) throws -> Errors {
+            patches.show(mac: macLv, ext: CGFloat(lv))
+            let f = try frame(12)
+            let a = Self.measure(f, mMac), b = Self.measure(f, mExt)
+            return Errors(red: Double((b.r / b.g) / (a.r / a.g) - 1), blue: Double((b.b / b.g) / (a.b / a.g) - 1))
+        }
+        var macLevels: [CGFloat] = []
+        for lv in fineLevels { macLevels.append(try equalize(lv)) }
+        let top = fineLevels.count - 1
+        // 단계끼리 보간으로 서로 영향을 주므로 두 바퀴
+        for pass in 1...2 {
+            for (i, lv) in fineLevels.enumerated() {
+                emit(.status(String(format: "미세 보정 중… %d/%d", (pass - 1) * fineLevels.count + i + 1, fineLevels.count * 2)))
+                for _ in 0..<4 {
+                    let le = try levelErrors(macLevels[i], lv)
+                    if abs(le.red) <= fineTolerance && abs(le.blue) <= fineTolerance { break }
+                    // 너무 붉으면(+) 빨강을 그만큼 줄임. 초록은 그대로 둬서 밝기·밝기 곡선을 유지.
+                    var r = corr.r[i] / (1 + le.red), g = corr.g[i], b = corr.b[i] / (1 + le.blue)
+                    if i == top {
+                        // 가장 밝은 단계만 1을 넘으면 잘리므로 세 채널을 같이 낮춤
+                        let mx = max(r, g, b)
+                        if mx > 1 { r /= mx; g /= mx; b /= mx }
+                    } else {
+                        r = min(r, 1.25); b = min(b, 1.25)
+                    }
+                    corr.r[i] = r; corr.g[i] = g; corr.b[i] = b
+                    applyCorr()
+                }
+            }
+        }
+        // 단계끼리 보간이 서로 영향을 주므로 마지막에 전체를 다시 잼
+        var fine: [(level: Double, errors: Errors)] = []
+        for (i, lv) in fineLevels.enumerated() { fine.append((lv, try levelErrors(macLevels[i], lv))) }
+        return Outcome(before: before, after: coarse, originalGains: original, finalGains: best.gains,
+                       fine: fine, correction: corr, previousCorrection: previous)
     }
 
     // MARK: 영상 분석

@@ -21,6 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusMenu = StatusMenuController(controller: controller, updater: updater, monitorKeeper: monitorKeeper)
         controller.start()
         monitorKeeper.start()
+        GammaCorrector.shared.start()
     }
 
     func applicationWillTerminate(_ notification: Notification) {

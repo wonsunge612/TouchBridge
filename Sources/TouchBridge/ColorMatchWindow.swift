@@ -90,7 +90,8 @@ final class ColorMatchModel: ObservableObject {
     }
 
     func revert(_ o: ColorMatcher.Outcome) {
-        ColorMatcher.revert(displayID: displayID, displayKey: displayKey, to: o.originalGains) { [weak self] in
+        ColorMatcher.revert(displayID: displayID, displayKey: displayKey, to: o.originalGains,
+                            correction: o.previousCorrection) { [weak self] in
             self?.reverted = true
         }
     }
@@ -176,13 +177,13 @@ struct ColorMatchView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text(model.reverted ? "원래 색으로 되돌렸습니다" : "색 맞추기 완료").font(.title3.bold())
             Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 6) {
-                GridRow { Text(""); Text("전").bold(); Text("후").bold() }
-                GridRow { Text("붉은 기 (맥북 대비)"); Text(pct(o.before.red)); Text(pct(o.after.red)) }
-                GridRow { Text("푸른 기 (맥북 대비)"); Text(pct(o.before.blue)); Text(pct(o.after.blue)) }
-                GridRow { Text("빨강 게인"); Text("\(o.originalGains[ColorMatcher.redGain] ?? 0)"); Text("\(o.finalGains[ColorMatcher.redGain] ?? 0)") }
-                GridRow { Text("파랑 게인"); Text("\(o.originalGains[ColorMatcher.blueGain] ?? 0)"); Text("\(o.finalGains[ColorMatcher.blueGain] ?? 0)") }
+                GridRow { Text(""); Text("전").bold(); Text("게인 조절 후").bold(); Text("미세 보정 후").bold() }
+                GridRow { Text("붉은 기 (맥북 대비)"); Text(pct(o.before.red)); Text(pct(o.after.red)); Text(range(o.fine.map(\.errors.red))) }
+                GridRow { Text("푸른 기 (맥북 대비)"); Text(pct(o.before.blue)); Text(pct(o.after.blue)); Text(range(o.fine.map(\.errors.blue))) }
+                GridRow { Text("빨강 게인"); Text("\(o.originalGains[ColorMatcher.redGain] ?? 0)"); Text("\(o.finalGains[ColorMatcher.redGain] ?? 0)"); Text("") }
+                GridRow { Text("파랑 게인"); Text("\(o.originalGains[ColorMatcher.blueGain] ?? 0)"); Text("\(o.finalGains[ColorMatcher.blueGain] ?? 0)"); Text("") }
             }.font(.body.monospacedDigit())
-            Text("맞춘 색은 기억해 두었다가 모니터를 켤 때마다 다시 적용합니다. 카메라는 사람 눈과 색을 느끼는 방식이 조금 달라서, 눈으로 보기에 약간 다를 수 있습니다.")
+            Text("미세 보정은 어두운·중간·밝은 회색 세 단계에서 맞춘 값입니다(표는 가장 큰 차이). 외장 모니터에만 적용되고 맥북 화면은 바뀌지 않으며, TouchBridge가 실행 중일 때 유지됩니다. 맞춘 색은 기억해 두었다가 모니터를 켤 때마다 다시 적용합니다. 카메라는 사람 눈과 색을 느끼는 방식이 조금 달라서, 눈으로 보기에 약간 다를 수 있습니다.")
                 .font(.callout).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
             HStack {
                 Button("다시 맞추기", action: model.retry)
@@ -207,6 +208,8 @@ struct ColorMatchView: View {
     }
 
     private func pct(_ v: Double) -> String { String(format: "%+.1f%%", v * 100) }
+    /// 여러 단계 중 가장 큰 차이
+    private func range(_ v: [Double]) -> String { v.max(by: { abs($0) < abs($1) }).map(pct) ?? "-" }
 }
 
 final class ColorMatchWindowController: NSObject, NSWindowDelegate {
