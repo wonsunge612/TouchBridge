@@ -19,10 +19,15 @@ enum Diag {
         return f
     }()
 
+    /// 여러 스레드(메인, DDC)에서 부르므로 직렬 큐에서 씀 (DateFormatter는 스레드 안전하지 않음)
+    private static let queue = DispatchQueue(label: "TouchBridge.log")
+
     static func log(_ msg: @autoclosure () -> String) {
-        let line = "\(formatter.string(from: Date())) \(msg())\n"
-        handle?.write(Data(line.utf8))
-        NSLog("TouchBridge: %@", msg())
+        let text = msg(), now = Date()
+        queue.async {
+            handle?.write(Data("\(formatter.string(from: now)) \(text)\n".utf8))
+            NSLog("TouchBridge: %@", text)
+        }
     }
 
     static func fmt(_ p: CGPoint) -> String { String(format: "(%.0f,%.0f)", p.x, p.y) }

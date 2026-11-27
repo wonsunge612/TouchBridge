@@ -57,6 +57,28 @@ final class AppSettings {
         static let target = "targetDisplayKey"
         static let calibrations = "calibrations"
         static let pinchGain = "pinchGain"
+        static let keepMonitor = "keepMonitorSettings"
+        static let monitorValues = "monitorValues"
+    }
+
+    /// 외장 모니터가 켜질 때 밝기·명암·음량을 마지막 값으로 되돌릴지
+    var keepMonitorSettings: Bool {
+        get { ud.object(forKey: Key.keepMonitor) as? Bool ?? true }
+        set { ud.set(newValue, forKey: Key.keepMonitor) }
+    }
+
+    /// 모니터별(DisplayInfo.key) 기억한 DDC 값: VCP 코드 → 값. UserDefaults 는 스레드 안전하므로 DDC 큐에서도 사용.
+    func monitorValues(for key: String) -> [UInt8: Int] {
+        let all = ud.dictionary(forKey: Key.monitorValues) as? [String: [String: Int]] ?? [:]
+        var out: [UInt8: Int] = [:]
+        for (k, v) in all[key] ?? [:] { if let c = UInt8(k) { out[c] = v } }
+        return out
+    }
+
+    func setMonitorValue(_ value: Int, code: UInt8, for key: String) {
+        var all = ud.dictionary(forKey: Key.monitorValues) as? [String: [String: Int]] ?? [:]
+        all[key, default: [:]][String(code)] = value
+        ud.set(all, forKey: Key.monitorValues)
     }
 
     /// 핀치 줌 감도: 출력 배율 = (손가락 간격 비율)^gain. 1.0이면 손가락과 1:1

@@ -5,6 +5,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var controller: TouchController!
     private var statusMenu: StatusMenuController!
     private var updater: Updater!
+    private let monitorKeeper = MonitorKeeper()
 
     static func main() {
         let app = NSApplication.shared
@@ -17,8 +18,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         controller = TouchController()
         updater = Updater()
-        statusMenu = StatusMenuController(controller: controller, updater: updater)
+        statusMenu = StatusMenuController(controller: controller, updater: updater, monitorKeeper: monitorKeeper)
         controller.start()
+        monitorKeeper.start()
     }
 
     func applicationWillTerminate(_ notification: Notification) {

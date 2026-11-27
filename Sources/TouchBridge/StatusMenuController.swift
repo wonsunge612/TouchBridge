@@ -6,11 +6,13 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     private let menu = NSMenu()
     private let controller: TouchController
     private let updater: Updater
+    private let keeper: MonitorKeeper
     private let calibration = CalibrationWindowController()
 
-    init(controller: TouchController, updater: Updater) {
+    init(controller: TouchController, updater: Updater, monitorKeeper: MonitorKeeper) {
         self.controller = controller
         self.updater = updater
+        self.keeper = monitorKeeper
         super.init()
         menu.delegate = self
         menu.autoenablesItems = false
@@ -72,6 +74,34 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
             menu.addItem(it)
         }
         menu.addItem(.separator())
+
+        // 모니터 설정 (DDC/CI): 켤 때 밝기·명암·음량 복원 + 슬라이더
+        if !keeper.status.isEmpty {
+            menu.addItem(disabled("모니터 설정"))
+            let keep = item("켤 때 밝기·명암·음량 되돌리기", #selector(toggleKeepMonitor))
+            keep.state = keeper.keepEnabled ? .on : .off
+            keep.indentationLevel = 1
+            menu.addItem(keep)
+            for (key, st) in keeper.status.sorted(by: { $0.value.name < $1.value.name }) {
+                if keeper.status.count > 1 { menu.addItem(disabled("   \(st.name)")) }
+                switch st.supported {
+                case nil:
+                    menu.addItem(disabled("   \(st.name): 확인 중…"))
+                case false:
+                    menu.addItem(disabled("   \(st.name): DDC/CI를 지원하지 않는 모니터"))
+                default:
+                    for c in MonitorKeeper.controls {
+                        guard let v = st.values[c.code] else { continue }
+                        let view = SliderMenuView(title: c.name, value: v, max: st.maxes[c.code] ?? 100)
+                        view.onChange = { [weak keeper] value in keeper?.set(value, code: c.code, for: key) }
+                        let it = NSMenuItem()
+                        it.view = view
+                        menu.addItem(it)
+                    }
+                }
+            }
+            menu.addItem(.separator())
+        }
 
         // 핀치 줌 감도
         let pinch = NSMenuItem(title: "핀치 줌 감도", action: nil, keyEquivalent: "")
@@ -167,6 +197,8 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
             if alert.runModal() == .alertFirstButtonReturn { LoginItem.openSettings() }
         }
     }
+
+    @objc private func toggleKeepMonitor() { keeper.keepEnabled.toggle() }
 
     @objc private func toggleAutoUpdate() { updater.automaticallyChecks.toggle() }
 
