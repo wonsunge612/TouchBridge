@@ -19,9 +19,10 @@ PUSH=true
 if [[ "${1:-}" == "-n" || "${1:-}" == "--no-push" ]]; then PUSH=false; shift; fi
 MESSAGE="${*:-}"
 
-ok()   { print -P "%F{green}✔%f $1"; }
-info() { print -P "%F{cyan}▶%f $1"; }
-fail() { print -P "%F{red}✖ $1%f"; git reset -q 2>/dev/null || true; exit 1; }
+# 메시지에 %가 있어도 색 코드로 해석되지 않도록 색 부분만 -P로 출력
+ok()   { print -nP "%F{green}✔%f "; print -r -- "$1"; }
+info() { print -nP "%F{cyan}▶%f "; print -r -- "$1"; }
+fail() { print -nP "%F{red}✖ "; print -nr -- "$1"; print -P "%f"; git reset -q 2>/dev/null || true; exit 1; }
 
 # ---------- 상태 ----------
 [[ -n "$(git status --porcelain)" ]] || { ok "바뀐 파일이 없습니다."; exit 0; }
