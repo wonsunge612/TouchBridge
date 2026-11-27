@@ -10,8 +10,20 @@ extension Notification.Name {
 ///
 /// 스레드: status/present 는 메인, DDC 통신과 그 상태는 DDC.queue.
 final class MonitorKeeper {
-    struct Control { let code: UInt8; let name: String }
-    static let controls = [Control(code: 0x10, name: "밝기"), Control(code: 0x12, name: "명암"), Control(code: 0x62, name: "음량")]
+    struct Control { let code: UInt8; let name: String; var inMenu = true }
+    /// 기억·복원하는 항목. RGB 게인은 '맥북과 색 맞추기'로 정하므로 메뉴 슬라이더에는 넣지 않는다.
+    static let controls = [Control(code: 0x10, name: "밝기"), Control(code: 0x12, name: "명암"), Control(code: 0x62, name: "음량"),
+                           Control(code: 0x16, name: "빨강 게인", inMenu: false),
+                           Control(code: 0x18, name: "초록 게인", inMenu: false),
+                           Control(code: 0x1A, name: "파랑 게인", inMenu: false)]
+
+    /// 색 맞추기(RGB 게인)를 지원하는지 — 세 게인을 모두 읽을 수 있어야 함
+    func supportsColorMatch(_ key: String) -> Bool {
+        guard let s = status[key], s.supported == true else { return false }
+        return [UInt8(0x16), 0x18, 0x1A].allSatisfy { s.values[$0] != nil }
+    }
+
+    func displayID(for key: String) -> CGDirectDisplayID? { present[key] }
 
     struct Status {
         var name: String

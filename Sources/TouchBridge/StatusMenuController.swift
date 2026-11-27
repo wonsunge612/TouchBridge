@@ -8,6 +8,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     private let updater: Updater
     private let keeper: MonitorKeeper
     private let calibration = CalibrationWindowController()
+    private let colorMatch = ColorMatchWindowController()
 
     init(controller: TouchController, updater: Updater, monitorKeeper: MonitorKeeper) {
         self.controller = controller
@@ -90,13 +91,18 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
                 case false:
                     menu.addItem(disabled("   \(st.name): DDC/CI를 지원하지 않는 모니터"))
                 default:
-                    for c in MonitorKeeper.controls {
+                    for c in MonitorKeeper.controls where c.inMenu {
                         guard let v = st.values[c.code] else { continue }
                         let view = SliderMenuView(title: c.name, value: v, max: st.maxes[c.code] ?? 100)
                         view.onChange = { [weak keeper] value in keeper?.set(value, code: c.code, for: key) }
                         let it = NSMenuItem()
                         it.view = view
                         menu.addItem(it)
+                    }
+                    if keeper.supportsColorMatch(key), controller.displays.displays.contains(where: { $0.isBuiltin }) {
+                        let cm = item("   맥북과 색 맞추기… (아이폰 카메라)", #selector(openColorMatch(_:)))
+                        cm.representedObject = key
+                        menu.addItem(cm)
                     }
                 }
             }
@@ -196,6 +202,11 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
             NSApp.activate(ignoringOtherApps: true)
             if alert.runModal() == .alertFirstButtonReturn { LoginItem.openSettings() }
         }
+    }
+
+    @objc private func openColorMatch(_ sender: NSMenuItem) {
+        guard let key = sender.representedObject as? String, let id = keeper.displayID(for: key) else { return }
+        colorMatch.show(displayID: id, displayKey: key, displayName: keeper.status[key]?.name ?? "외장 모니터")
     }
 
     @objc private func toggleKeepMonitor() { keeper.keepEnabled.toggle() }

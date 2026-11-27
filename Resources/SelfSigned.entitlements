@@ -6,5 +6,8 @@
 	     팀 ID가 없으면 앱 안의 Sparkle.framework도 불러오지 못해 실행 즉시 종료된다. Developer ID 서명에는 쓰지 않는다. -->
 	<key>com.apple.security.cs.disable-library-validation</key>
 	<true/>
+	<!-- TouchBridge.entitlements 와 같게 유지: 카메라 (화면 색 맞추기) -->
+	<key>com.apple.security.device.camera</key>
+	<true/>
 </dict>
 </plist>

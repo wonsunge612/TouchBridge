@@ -12,5 +12,6 @@ if [[ -z "$IDENTITY" ]]; then
 else
     echo "서명: $IDENTITY"
 fi
-scripts/bundle-app.sh "$BIN_DIR" build/TouchBridge.app "$IDENTITY" "--timestamp=none"
+APP_ENTITLEMENTS=Resources/TouchBridge.entitlements \
+    scripts/bundle-app.sh "$BIN_DIR" build/TouchBridge.app "$IDENTITY" "--timestamp=none"
 echo "✅ build/TouchBridge.app"

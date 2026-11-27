@@ -17,6 +17,7 @@
     <key>SUPublicEDKey</key><string>RTAWOJ/LQ3OqRaUrnD8Gb2rdmrUai/HdaVJX3IQQw5E=</string>
     <key>SUEnableAutomaticChecks</key><true/>
     <key>SUScheduledCheckInterval</key><integer>86400</integer>
+    <key>NSCameraUsageDescription</key><string>아이폰(연속성 카메라)으로 두 화면을 함께 찍어 외장 모니터 색을 맥북 화면에 맞춥니다. 영상은 저장하거나 전송하지 않습니다.</string>
     <key>LSApplicationCategoryType</key><string>public.app-category.utilities</string>
     <key>NSHumanReadableCopyright</key><string>TouchBridge — universal external touch display mapper</string>
 </dict>

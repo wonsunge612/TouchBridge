@@ -145,7 +145,7 @@ mkdir -p "$STAGE"
 BUILD_NUMBER="${BUILD_NUMBER:-$(date +%Y%m%d%H%M)}"
 TS="--timestamp"; $DEV && TS="--timestamp=none"
 # 자체 서명(팀 ID 없음)이면 라이브러리 검증 예외가 있어야 앱이 Sparkle.framework 를 불러온다
-APP_ENTITLEMENTS=""
+APP_ENTITLEMENTS="Resources/TouchBridge.entitlements"   # 카메라
 $DEV && APP_ENTITLEMENTS="Resources/SelfSigned.entitlements"
 APP_ENTITLEMENTS="$APP_ENTITLEMENTS" scripts/bundle-app.sh "${BIN:h}" "$APP" "$SIGN_IDENTITY" "$TS" "$VERSION" "$BUILD_NUMBER"
 echo "   CFBundleShortVersionString=$VERSION  CFBundleVersion=$BUILD_NUMBER"
