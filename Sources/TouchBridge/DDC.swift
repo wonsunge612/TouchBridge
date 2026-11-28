@@ -32,7 +32,7 @@ enum DDC {
     /// IORegistry 에서 AppleCLCD2(화면 EDID 정보) 다음에 나오는 외장 DCPAVServiceProxy 가 그 화면의 DDC 통로다.
     static func channels() -> [CGDirectDisplayID: DDCChannel] {
         guard let create = createFn else { return [:] }
-        struct Found { let vendor: Int?, product: Int?, serial: Int?, service: CFTypeRef }
+        struct Found { let vendor: Int?, product: Int?, serial: Int?, service: CFTypeRef, entryID: UInt64 }
         var found: [Found] = []
         var it: io_iterator_t = 0
         guard IORegistryCreateIterator(kIOMainPortDefault, kIOServicePlane,
@@ -47,10 +47,12 @@ enum DDC {
                    let pa = da["ProductAttributes"] as? [String: Any] { last = pa }
             } else if cls == "DCPAVServiceProxy", (prop(e, "Location") as? String) == "External",
                       let av = create(kCFAllocatorDefault, e)?.takeRetainedValue() {
+                var entryID: UInt64 = 0
+                IORegistryEntryGetRegistryEntryID(e, &entryID)
                 found.append(Found(vendor: (last?["LegacyManufacturerID"] as? NSNumber)?.intValue,
                                    product: (last?["ProductID"] as? NSNumber)?.intValue,
                                    serial: (last?["SerialNumber"] as? NSNumber)?.intValue,
-                                   service: av))
+                                   service: av, entryID: entryID))
                 last = nil
             }
         }
@@ -66,14 +68,18 @@ enum DDC {
         for id in externals {
             let v = Int(CGDisplayVendorNumber(id)), m = Int(CGDisplayModelNumber(id)), s = Int(CGDisplaySerialNumber(id))
             if let i = unused.firstIndex(where: { $0.vendor == v && $0.product == m && (s == 0 || $0.serial == nil || $0.serial == s) }) {
-                result[id] = DDCChannel(displayID: id, service: unused.remove(at: i).service)
+                let f = unused.remove(at: i)
+                result[id] = DDCChannel(displayID: id, service: f.service, entryID: f.entryID)
             }
         }
         // EDID 정보로 못 짝지었지만 남은 게 하나씩이면 그 둘을 짝지음
         let left = externals.filter { result[$0] == nil }
-        if left.count == 1, unused.count == 1 { result[left[0]] = DDCChannel(displayID: left[0], service: unused[0].service) }
-        // 이미 쓰던 채널이 있으면 그것을 계속 사용 (DDC.queue 에서만 호출되므로 동기화 불필요)
-        for id in result.keys { if let old = cache[id] { result[id] = old } }
+        if left.count == 1, unused.count == 1 {
+            result[left[0]] = DDCChannel(displayID: left[0], service: unused[0].service, entryID: unused[0].entryID)
+        }
+        // 같은 통로면 쓰던 채널을 계속 사용 (DDC.queue 에서만 호출). 모니터를 껐다 켜면 화면 번호는 같아도
+        // 통로가 새로 생기므로 레지스트리 ID까지 같아야 재사용 — 아니면 죽은 통로로 계속 실패함
+        for (id, ch) in result { if let old = cache[id], old.entryID == ch.entryID { result[id] = old } }
         cache = result
         return result
     }
@@ -85,6 +91,7 @@ enum DDC {
 
 final class DDCChannel {
     let displayID: CGDirectDisplayID
+    let entryID: UInt64
     private let service: CFTypeRef
     /// 쓰기 직후 모니터가 약 1초 동안 엉뚱한 응답을 돌려주므로 그동안 읽지 않음
     private var readReadyAt: CFAbsoluteTime = 0
@@ -92,9 +99,10 @@ final class DDCChannel {
     private var writeReadyAt: CFAbsoluteTime = 0
     private static let chip: UInt32 = 0x37, addr: UInt32 = 0x51
 
-    init(displayID: CGDirectDisplayID, service: CFTypeRef) {
+    init(displayID: CGDirectDisplayID, service: CFTypeRef, entryID: UInt64) {
         self.displayID = displayID
         self.service = service
+        self.entryID = entryID
     }
 
     /// VCP 값 읽기. 응답 체크섬까지 맞아야 인정한다.

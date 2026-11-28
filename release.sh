@@ -179,12 +179,13 @@ fi
 # ---------- 실행 시험 (서명·프레임워크 로드 문제는 실행해 봐야 드러난다) ----------
 step "실행 시험 (3초)"
 RUNLOG="$OUT/launch-test.log"
-TOUCHBRIDGE_FEED_URL="http://127.0.0.1:9/none.xml" "$APP/Contents/MacOS/$APP_NAME" > "$RUNLOG" 2>&1 &
+# 시험 실행이 지금 쓰고 있는 앱의 ~/Library/Logs/TouchBridge.log 를 지우지 않도록 따로 씀
+TOUCHBRIDGE_LOG="$OUT/launch-test-diag.log" TOUCHBRIDGE_FEED_URL="http://127.0.0.1:9/none.xml" "$APP/Contents/MacOS/$APP_NAME" > "$RUNLOG" 2>&1 &
 RUNPID=$!
 sleep 3
 if kill -0 $RUNPID 2>/dev/null; then
     kill $RUNPID; wait $RUNPID 2>/dev/null || true
-    echo "   정상 실행됨"; rm -f "$RUNLOG"
+    echo "   정상 실행됨"; rm -f "$RUNLOG" "$OUT/launch-test-diag.log"
 else
     grep -m3 -E "dyld|Library not loaded|Team ID|Reason" "$RUNLOG" | cut -c1-200 | sed "s/^/   /"
     fail "앱이 실행되자마자 종료됐습니다 ($RUNLOG). 이대로 배포하면 사용자 맥에서 열리지 않습니다."

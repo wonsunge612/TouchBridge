@@ -114,7 +114,7 @@ final class MonitorKeeper {
         let snapshot = present
         DDC.queue.async { [self] in
             qPresent = snapshot
-            channels = channels.filter { snapshot.values.contains($0.key) }
+            channels.removeAll()   // 재연결되면 같은 화면 번호라도 통로가 바뀜 → 다시 찾음 (안 바뀐 통로는 DDC 캐시가 유지)
         }
         NotificationCenter.default.post(name: .monitorSettingsDidChange, object: self)
     }
@@ -212,6 +212,7 @@ final class MonitorKeeper {
             if let failed = needsRestore[key] {
                 if CFAbsoluteTimeGetCurrent() - failed > 15 {
                     needsRestore[key] = CFAbsoluteTimeGetCurrent()
+                    channels[id] = nil   // 통로를 새로 찾음
                     restore(key, id, reason: "다시 시도")
                 }
                 continue
