@@ -89,7 +89,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
                 case nil:
                     menu.addItem(disabled("   \(st.name): 확인 중…"))
                 case false:
-                    menu.addItem(disabled("   \(st.name): DDC/CI를 지원하지 않는 모니터"))
+                    menu.addItem(disabled("   \(st.name): DDC/CI 응답 없음 — 다시 시도 중"))
                 default:
                     for c in MonitorKeeper.controls where c.inMenu {
                         guard let v = st.values[c.code] else { continue }

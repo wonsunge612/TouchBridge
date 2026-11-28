@@ -46,6 +46,8 @@ final class MonitorKeeper {
     private var channels: [CGDirectDisplayID: DDCChannel] = [:]
     private var restoring: Set<String> = []
     private var unresponsive: [String: Int] = [:]
+    /// 연결 때 복원에 실패한 모니터 (통로가 늦게 생기거나 부팅 중) → 주기 확인에서 다시 시도하고, 그 전 값은 기억하지 않음
+    private var needsRestore: [String: CFAbsoluteTime] = [:]
     private var lastWrite: [String: CFAbsoluteTime] = [:]
     private var timer: DispatchSourceTimer?
 
@@ -147,7 +149,8 @@ final class MonitorKeeper {
         let name = DisplayManager.screen(for: id)?.localizedName ?? key
 
         guard let ch = channel(for: id, waitUpTo: 5) else {
-            Diag.log("모니터 설정: \(name) DDC 통로를 찾지 못함 — 지원하지 않는 연결 방식")
+            Diag.log("모니터 설정: \(name) DDC 통로를 찾지 못함 — 15초 뒤 다시 시도")
+            needsRestore[key] = CFAbsoluteTimeGetCurrent()
             publish(key) { $0.supported = false }
             return
         }
@@ -158,11 +161,13 @@ final class MonitorKeeper {
             cur = readAll(ch)
         }
         guard !cur.values.isEmpty else {
-            Diag.log("모니터 설정: \(name) DDC 응답 없음 — 이 모니터는 지원하지 않음")
+            Diag.log("모니터 설정: \(name) DDC 응답 없음 — 15초 뒤 다시 시도")
+            needsRestore[key] = CFAbsoluteTimeGetCurrent()
             publish(key) { $0.supported = false }
             return
         }
         unresponsive[key] = 0
+        needsRestore[key] = nil
 
         var saved = settings.monitorValues(for: key)
         if saved.isEmpty {
@@ -203,6 +208,14 @@ final class MonitorKeeper {
     /// 주기적으로 읽어서: 모니터 버튼으로 바꾼 값은 기억하고, 응답이 끊겼다 돌아오면(전원 껐다 켬) 복원
     private func poll() {
         for (key, id) in qPresent {
+            // shortcut: 정말 DDC가 없는 모니터도 15초마다 재시도(DDC 큐를 몇 초씩 점유), 그런 모니터 사용자가 생기면 횟수 제한
+            if let failed = needsRestore[key] {
+                if CFAbsoluteTimeGetCurrent() - failed > 15 {
+                    needsRestore[key] = CFAbsoluteTimeGetCurrent()
+                    restore(key, id, reason: "다시 시도")
+                }
+                continue
+            }
             guard !restoring.contains(key), !hasPending(key),
                   CFAbsoluteTimeGetCurrent() - (lastWrite[key] ?? 0) > 3,
                   let ch = channels[id] else { continue }

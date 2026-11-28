@@ -12,3 +12,6 @@ dist/
 .swiftpm/
 *.xcodeproj/
 xcuserdata/
+
+# graphify 지식 그래프 (로컬 분석용)
+graphify-out/
